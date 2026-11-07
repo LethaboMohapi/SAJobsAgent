@@ -25,16 +25,36 @@ public class AgentController(AgentService agent, AppDbContext db) : ControllerBa
             await db.SaveChangesAsync(ct);
         }
 
-        var reply = await agent.ChatAsync(id, req.Message, ct);
-        return Ok(new { sessionId = id, reply });
+        try
+        {
+            var reply = await agent.ChatAsync(id, req.Message, ct);
+            return Ok(new { sessionId = id, reply });
+        }
+        catch (HttpRequestException)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new { error = "The assistant service is temporarily unavailable. Please try again shortly." });
+        }
     }
 
     [HttpGet("opportunities")]
     public async Task<IActionResult> List([FromQuery] string? type, [FromQuery] string? province, CancellationToken ct)
     {
-        var q = db.Opportunities.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(type)) q = q.Where(o => o.Type == type);
-        if (!string.IsNullOrWhiteSpace(province)) q = q.Where(o => o.Province == province);
+        var today = DateTime.UtcNow.Date;
+        var q = db.Opportunities.Where(o => o.ClosingDate == null || o.ClosingDate >= today);
+
+        if (!string.IsNullOrWhiteSpace(type))
+        {
+            var typeFilter = type.Trim();
+            q = q.Where(o => o.Type == typeFilter);
+        }
+
+        if (!string.IsNullOrWhiteSpace(province))
+        {
+            var provinceFilter = province.Trim();
+            q = q.Where(o => o.Province == provinceFilter);
+        }
+
         return Ok(await q.OrderBy(o => o.ClosingDate).ToListAsync(ct));
     }
 }

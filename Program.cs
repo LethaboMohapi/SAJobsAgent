@@ -21,7 +21,12 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
 }
 
+app.UseStaticFiles();
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(options =>
+{
+    options.InjectStylesheet("/swagger-ui/footer.css");
+    options.InjectJavascript("/swagger-ui/footer.js");
+});
 app.MapControllers();
 app.Run();

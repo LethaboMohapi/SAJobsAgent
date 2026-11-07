@@ -1,50 +1,46 @@
 # SAJobsAgent
 
-I’ve built the agent as an ASP.NET Core 8 Web API with MySQL, packaged in SAJobsAgent.zip. I couldn’t compile it here because .NET isn’t installed in my environment, so run dotnet build first and send me any errors.
+SAJobsAgent is an ASP.NET Core 8 Web API backed by MySQL. Its assistant, Thuto, helps South African job seekers find learnerships, internships, bursaries and jobs, improve CVs, and prepare for interviews.
 
-The agent is called Thuto. It helps South African job seekers find learnerships, internships, bursaries and jobs, improve their CVs and prepare for interviews. It follows South African conventions: no ID number or photo on a CV, NQF levels explained, and warnings about pay-to-apply scams. It replies in the user’s language when it can write it well, such as isiZulu or Afrikaans.
+The guidance follows South African conventions: no ID number or photo on a CV, simple NQF explanations, and warnings about pay-to-apply scams. Thuto replies in the user's language when it can do so well, including isiZulu, isiXhosa, Afrikaans, Sesotho and Setswana.
 
-How it works
+## How it works
 
-POST /api/agent/chat takes { sessionId?, message }. It stores the conversation in MySQL and sends the last 30 messages to Claude.
-Claude has two tools, search_opportunities and get_opportunity. When it calls one, the API runs the query on your database and feeds the result back, looping up to 6 times. It is instructed to recommend only listings returned by those tools.
-GET /api/opportunities is a plain endpoint for listing the data.
-The code is split into Models/, Data/AppDbContext.cs, Services/AgentService.cs (the agent loop) and Controllers/AgentController.cs. The model name is a setting in appsettings.json.
+- POST /api/agent/chat accepts a sessionId (optional) and message, stores the conversation in MySQL, and sends the latest 30 messages to a configured tool-capable chat endpoint.
+- The assistant can call search_opportunities and get_opportunity. The API runs each query against MySQL and returns the results for the assistant to use.
+- GET /api/opportunities lists open listings. Optional type and province query parameters filter the results.
+- Swagger documentation is available at /swagger. The page footer credits the author.
 
-To run it
-
-Put your MySQL password in the connection string in appsettings.json.
-Store your API key outside the repo: dotnet user-secrets set "ApiKey" "sk-ant-...".
-Run dotnet run and open /swagger. The database and seed data are created on first start.
-
-Before it’s useful
-
-The 5 seeded listings are labelled SAMPLE and use placeholder links. Replace them with real data from an admin endpoint, a scraper or SETA and employer feeds.
-EnsureCreated() is only for development. Move to EF migrations before production, and add authentication and rate limiting on the chat endpoint.
-
-Next you could add a CV upload tool (PDF to text, then review), an endpoint for saving user profiles, or a React or WhatsApp front end. Which would you like first?
-
-ASP.NET Core 8 Web API + MySQL + Claude. "Thuto" helps South African job seekers find learnerships,
-internships, bursaries and jobs, improve CVs and prepare for interviews.
+The configured endpoint must accept a JSON messages request with model, system, max_tokens and tools fields, and return content blocks with a stop_reason. It must support the tool call structure used by this project.
 
 ## Run
-1. Install .NET 8 SDK and MySQL 8.
-2. Set your MySQL password in `appsettings.json` (ConnectionStrings:Default).
-3. Store your key outside source control:
-   ```
-   dotnet user-secrets init
-   dotnet user-secrets set ":ApiKey" "sk-ant-..."
-   ```
-4. `dotnet run`, then open `/swagger`. The database and sample data are created on first start.
+
+1. Install the .NET 8 SDK and MySQL 8.
+2. Set the MySQL password in appsettings.json under ConnectionStrings:Default.
+3. Configure the chat endpoint and credentials using .NET user secrets:
+
+       dotnet user-secrets set "Ai:Endpoint" "https://your-chat-endpoint.example/v1/messages"
+       dotnet user-secrets set "Ai:ApiKey" "your-secret-key"
+       dotnet user-secrets set "Ai:Model" "your-tool-capable-model"
+
+   The default key header is Authorization with the Bearer prefix. If your endpoint requires different authentication, set Ai:ApiKeyHeader and Ai:ApiKeyPrefix. Additional request headers can be supplied under Ai:Headers. Keep keys and sensitive header values out of source control.
+
+4. Run dotnet run and open /swagger. The database and sample data are created on first start.
 
 ## Try it
+
 POST /api/agent/chat
-```json
-{ "message": "I'm a matric learner in Gauteng interested in IT. What learnerships can I apply for?" }
-```
-Reuse the returned `sessionId` to continue the conversation.
+
+    {
+      "message": "I'm a matric learner in Gauteng interested in IT. What learnerships can I apply for?"
+    }
+
+Reuse the returned sessionId to continue the conversation.
 
 ## Notes
-- Seed listings are SAMPLE data. Replace them with real listings (admin endpoint, scraper or SETA/employer feed).
-- Swap `EnsureCreated()` for EF migrations before production, and add auth + rate limiting on /api/agent/chat.
- 
+
+- The five seeded listings are SAMPLE data with placeholder links. Replace them with real listings from an admin endpoint, scraper, SETA portal or employer feed.
+- EnsureCreated() is for development. Use EF migrations before production, and add authentication and rate limiting to the chat endpoint.
+- Chat requests are limited to 8,000 characters. Requests to unavailable or unsuccessful chat endpoints return a generic 502 response.
+
+The code is organized into Models/, Data/AppDbContext.cs, Services/AgentService.cs and Controllers/AgentController.cs.

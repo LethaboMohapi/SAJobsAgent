@@ -7,7 +7,7 @@ using SAJobsAgent.Models;
 
 namespace SAJobsAgent.Services;
 
-/// <summary>Claude-powered agent loop: the model decides when to call tools, we run them against MySQL and feed results back.</summary>
+/// <summary>Runs the chat model's tool calls against the opportunities stored in MySQL.</summary>
 public class AgentService(HttpClient http, AppDbContext db, IConfiguration cfg)
 {
     const string SystemPrompt = """
@@ -58,6 +58,19 @@ public class AgentService(HttpClient http, AppDbContext db, IConfiguration cfg)
 
     public async Task<string> ChatAsync(Guid sessionId, string text, CancellationToken ct)
     {
+        var endpointValue = cfg["Ai:Endpoint"];
+        if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint) ||
+            endpoint.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("Configure Ai:Endpoint as an absolute HTTPS URL.");
+
+        var apiKey = cfg["Ai:ApiKey"];
+        var model = cfg["Ai:Model"];
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException("Configure Ai:ApiKey and Ai:Model before using chat.");
+
+        var apiKeyHeader = cfg["Ai:ApiKeyHeader"] ?? "Authorization";
+        var apiKeyPrefix = cfg["Ai:ApiKeyPrefix"] ?? "Bearer ";
+
         db.Messages.Add(new ChatMessage { SessionId = sessionId, Role = "user", Content = text });
         await db.SaveChangesAsync(ct);
 
@@ -71,23 +84,33 @@ public class AgentService(HttpClient http, AppDbContext db, IConfiguration cfg)
 
         for (var turn = 0; turn < 6; turn++)
         {
-            var req = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
-            req.Headers.Add("x-api-key", cfg["Anthropic:ApiKey"]);
-            req.Headers.Add("anthropic-version", "2023-06-01");
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            if (!req.Headers.TryAddWithoutValidation(apiKeyHeader, apiKeyPrefix + apiKey))
+                throw new InvalidOperationException("Ai:ApiKeyHeader is not a valid request header.");
+
+            foreach (var header in cfg.GetSection("Ai:Headers").GetChildren())
+            {
+                if (!string.IsNullOrWhiteSpace(header.Value))
+                    req.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
             req.Content = JsonContent.Create(new JsonObject
             {
-                ["model"] = cfg["Anthropic:Model"],
+                ["model"] = model,
                 ["max_tokens"] = 1500,
                 ["system"] = SystemPrompt,
                 ["tools"] = Tools.DeepClone(),
                 ["messages"] = messages.DeepClone()
             });
 
-            var res = await http.SendAsync(req, ct);
-            var body = await res.Content.ReadAsStringAsync(ct);
+            using var res = await http.SendAsync(req, ct);
             if (!res.IsSuccessStatusCode)
-                throw new InvalidOperationException($"Anthropic API error {(int)res.StatusCode}: {body}");
+                throw new HttpRequestException(
+                    "Assistant service returned HTTP " + (int)res.StatusCode + ".",
+                    null,
+                    res.StatusCode);
 
+            var body = await res.Content.ReadAsStringAsync(ct);
             var json = JsonNode.Parse(body)!;
             var content = json["content"]!.AsArray();
 
@@ -147,10 +170,13 @@ public class AgentService(HttpClient http, AppDbContext db, IConfiguration cfg)
             {
                 var id = input["id"]!.GetValue<int>();
                 var o = await db.Opportunities.FindAsync([id], ct);
-                return o is null ? "Not found" : JsonSerializer.Serialize(o);
+                if (o is null) return "Opportunity not found.";
+                if (o.ClosingDate is not null && o.ClosingDate.Value.Date < today)
+                    return "This opportunity has closed and is no longer available.";
+                return JsonSerializer.Serialize(o);
             }
             default:
-                return $"Unknown tool: {name}";
+                return "Unknown tool: " + name;
         }
     }
 }
