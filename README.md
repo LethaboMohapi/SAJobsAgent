@@ -14,7 +14,7 @@ The code is split into Models/, Data/AppDbContext.cs, Services/AgentService.cs (
 To run it
 
 Put your MySQL password in the connection string in appsettings.json.
-Store your API key outside the repo: dotnet user-secrets set "Anthropic:ApiKey" "sk-ant-...".
+Store your API key outside the repo: dotnet user-secrets set "ApiKey" "sk-ant-...".
 Run dotnet run and open /swagger. The database and seed data are created on first start.
 
 Before it’s useful
@@ -30,10 +30,10 @@ internships, bursaries and jobs, improve CVs and prepare for interviews.
 ## Run
 1. Install .NET 8 SDK and MySQL 8.
 2. Set your MySQL password in `appsettings.json` (ConnectionStrings:Default).
-3. Store your Anthropic key outside source control:
+3. Store your key outside source control:
    ```
    dotnet user-secrets init
-   dotnet user-secrets set "Anthropic:ApiKey" "sk-ant-..."
+   dotnet user-secrets set ":ApiKey" "sk-ant-..."
    ```
 4. `dotnet run`, then open `/swagger`. The database and sample data are created on first start.
 
@@ -47,3 +47,4 @@ Reuse the returned `sessionId` to continue the conversation.
 ## Notes
 - Seed listings are SAMPLE data. Replace them with real listings (admin endpoint, scraper or SETA/employer feed).
 - Swap `EnsureCreated()` for EF migrations before production, and add auth + rate limiting on /api/agent/chat.
+ 
